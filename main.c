@@ -78,15 +78,15 @@ int main() {
         CorIdentificada cor_atual = identificar_cor_hsv(h, s, v);
 
         // --- Lógica de Alertas ---
-        bool low_light_alert = lux < LUMINOSITY_THRESHOLD;
-        bool intense_red_alert = (cor_atual == VERMELHO && s > 0.7f && v > 0.7f);
+        bool low_light_alert = lux < LUMINOSITY_THRESHOLD; // Se a luminosidade está abaixo do limiar, alerta de baixa luminosidade
+        bool intense_red_alert = (cor_atual == VERMELHO && s > 0.6f && v > 0.7f); // Se a saturação e o valor são altos, indica vermelho intenso
         if (low_light_alert || intense_red_alert) {
             play_alert_tone();
         }
 
         // --- Atualização da Matriz de LED ---
         CorRGB cor_led_pura = obter_rgb_para_cor(cor_atual);
-        uint8_t brilho = map(lux, 10, 80, 1, 255); // Ajuste do brilho baseado na luminosidade
+        uint8_t brilho = map(lux, LUMINOSITY_THRESHOLD, LUMINOSITY_MAX, 1, 255); // Ajuste do brilho baseado na luminosidade
         uint8_t r_final = (cor_led_pura.r * brilho) / 255;
         uint8_t g_final = (cor_led_pura.g * brilho) / 255;
         uint8_t b_final = (cor_led_pura.b * brilho) / 255;

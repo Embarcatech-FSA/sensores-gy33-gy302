@@ -24,7 +24,8 @@
 #define BDATA_REG       0x1A
 
 // --- Limiares e Configurações de Lógica ---
-#define LUMINOSITY_THRESHOLD 0
+#define LUMINOSITY_THRESHOLD 50 // Limite de luminosidade para alerta [ATENÇÃO: Insira o valor mínimo que o sensor consegue ler no seu ambiente]
+#define LUMINOSITY_MAX 300 // Limite máximo de luminosidade para ajuste de brilho [ATENÇÃO: Insira o valor máximo que o sensor consegue ler no seu ambiente com luz intensa]
 #define SENSOR_COLOR_MAX_VALUE 3000 // Valor para normalização dos dados brutos
 
 // --- Pinos do LED RGB e Botões ---
