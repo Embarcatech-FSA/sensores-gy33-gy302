@@ -31,6 +31,8 @@ add_executable(${PROJECT_NAME}
         main.c # Código principal em C
         libs/src/ssd1306.c # Biblioteca do display OLED SSD1306
         libs/src/bh1750.c # Biblioteca do sensor de luz BH1750
+        libs/src/gy33.c # Biblioteca do sensor de cor GY-33
+        libs/src/color_utils.c # Funções utilitárias, para manipulação de cores
         )
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR})  # Adiciona o diretório raiz como include privado apenas para o target atual
