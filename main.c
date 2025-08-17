@@ -29,35 +29,33 @@ uint buzzer_slice_num;
 
 void init_buzzer();
 void play_alert_tone();
-void init_leds();
+void init_leds_buttons();
 void gpio_irq_handler(uint gpio, uint32_t events);
 void switch_led_color();
-
+void init_i2c();
 
 
 // --- Função Principal ---
 int main() {
     stdio_init_all();
-    sleep_ms(2000);
+    sleep_ms(1000);
 
     // Inicialização de todos os periféricos e interfaces
-    i2c_init(I2C_PORT_SENSORS, 100 * 1000);
-    gpio_set_function(I2C_SDA_SENSORS, GPIO_FUNC_I2C); gpio_set_function(I2C_SCL_SENSORS, GPIO_FUNC_I2C);
-    gpio_pull_up(I2C_SDA_SENSORS); gpio_pull_up(I2C_SCL_SENSORS);
-    i2c_init(I2C_PORT_DISPLAY, 400 * 1000);
-    gpio_set_function(I2C_SDA_DISPLAY, GPIO_FUNC_I2C); gpio_set_function(I2C_SCL_DISPLAY, GPIO_FUNC_I2C);
-    gpio_pull_up(I2C_SDA_DISPLAY); gpio_pull_up(I2C_SCL_DISPLAY);
+
+    np_init(WS2812_PIN);
+    np_clear();
     init_buzzer();
+    init_leds_buttons();
+    init_i2c();
+    gy33_init();
+    bh1750_power_on(I2C_PORT_SENSORS);
+
     ssd1306_init(&disp, 128, 64, false, ADDRESS_DISPLAY, I2C_PORT_DISPLAY);
     ssd1306_config(&disp);
     ssd1306_draw_string(&disp, "Iniciando...", 0, 0);
     ssd1306_send_data(&disp);
+    
     sleep_ms(1000);
-    bh1750_power_on(I2C_PORT_SENSORS);
-    gy33_init();
-    np_init(WS2812_PIN);
-    np_clear();
-    init_leds();
     
     // Habilita as interrupções para os botões
     gpio_set_irq_enabled_with_callback(BUTTON_A, GPIO_IRQ_EDGE_FALL, true, &gpio_irq_handler);
@@ -147,7 +145,7 @@ void play_alert_tone() {
 /**
  * @brief Inicializa os pinos dos LEDs RGB como saídas e dos botões como entradas com pull-up.
  */
-void init_leds() {
+void init_leds_buttons() {
     // Configura os pinos dos LEDs
     gpio_init(LED_RED);
     gpio_init(LED_GREEN);
@@ -167,6 +165,28 @@ void init_leds() {
     gpio_pull_up(BUTTON_A);
     gpio_pull_up(BUTTON_B);
 }
+
+/**
+ * @brief Inicializa o I2C para os sensores e o display.
+ * Esta função configura os pinos SDA e SCL para os barramentos I2C dos sensores e do display.
+ */
+void init_i2c(){
+
+    /* I2C dos sensores GY-33 e GY-302 */
+    i2c_init(I2C_PORT_SENSORS, 100 * 1000);
+    gpio_set_function(I2C_SDA_SENSORS, GPIO_FUNC_I2C);
+    gpio_set_function(I2C_SCL_SENSORS, GPIO_FUNC_I2C);
+    gpio_pull_up(I2C_SDA_SENSORS); 
+    gpio_pull_up(I2C_SCL_SENSORS);
+
+    /* I2C do display SSD1306 */
+    i2c_init(I2C_PORT_DISPLAY, 400 * 1000);
+    gpio_set_function(I2C_SDA_DISPLAY, GPIO_FUNC_I2C);
+    gpio_set_function(I2C_SCL_DISPLAY, GPIO_FUNC_I2C);
+    gpio_pull_up(I2C_SDA_DISPLAY);
+    gpio_pull_up(I2C_SCL_DISPLAY);
+}
+
 
 /**
  * @brief Função de callback que trata as interrupções geradas pelos botões.
