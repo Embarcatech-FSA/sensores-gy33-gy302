@@ -26,7 +26,7 @@
 // --- Limiares e Configurações de Lógica ---
 #define LUMINOSITY_THRESHOLD 10 // Limite de luminosidade para alerta [ATENÇÃO: Insira o valor mínimo que o sensor consegue ler no seu ambiente]
 #define LUMINOSITY_MAX 300 // Limite máximo de luminosidade para ajuste de brilho [ATENÇÃO: Insira o valor máximo que o sensor consegue ler no seu ambiente com luz intensa]
-#define SENSOR_COLOR_MAX_VALUE 3000 // Valor para normalização dos dados brutos
+#define SENSOR_COLOR_MAX_VALUE 4095 // Valor para normalização dos dados brutos
 
 // --- Pinos do LED RGB e Botões ---
 #define LED_RED 13
@@ -34,5 +34,6 @@
 #define LED_GREEN 11
 #define BUTTON_A 5
 #define BUTTON_B 6
+#define BTN_JOYSTICK 22
 
 #endif

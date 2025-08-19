@@ -10,6 +10,7 @@
 #include "ssd1306.h"
 #include "ws2812.h"
 #include "gy33.h"
+#include "mlp.h"
 
 #include "config.h"
 #include "color_utils.h"
@@ -23,6 +24,7 @@ volatile bool led_enabled = false;
 // --- Variáveis Globais ---
 ssd1306_t disp;
 uint buzzer_slice_num;
+bool screen = true;
 
 // --- Definições das Funções ---
 
@@ -32,6 +34,20 @@ void init_leds_buttons();
 void gpio_irq_handler(uint gpio, uint32_t events);
 void switch_led_color();
 void init_i2c();
+void trained_mlp_model(); 
+int get_ambient_mode(); 
+
+// -- Multilayer Perceptron
+MLP mlp;
+#define INPUT_LAYER_LEN 3
+#define HIDDEN_LAYER_LEN 5
+#define OUTPUT_LAYER_LEN 3
+
+// Cores e luminosidade
+uint8_t r_norm = 0.0;
+uint8_t g_norm = 0.0;
+uint8_t b_norm = 0.0;
+uint16_t lux = 0.0;
 
 
 // --- Função Principal ---
@@ -59,18 +75,23 @@ int main() {
     // Habilita as interrupções para os botões
     gpio_set_irq_enabled_with_callback(BUTTON_A, GPIO_IRQ_EDGE_FALL, true, &gpio_irq_handler);
     gpio_set_irq_enabled_with_callback(BUTTON_B, GPIO_IRQ_EDGE_FALL, true, &gpio_irq_handler);
+    gpio_set_irq_enabled_with_callback(BTN_JOYSTICK, GPIO_IRQ_EDGE_FALL, true, &gpio_irq_handler);
     
     bool matriz[LEDS_COUNT] = {0,0,0,0,0, 0,1,1,1,0, 0,1,1,1,0, 0,1,1,1,0, 0,0,0,0,0}; 
-    char oled_buffer[40];
+    char oled_buffer[128];
     uint16_t r, g, b, c;
+    int mode;
+
+    trained_mlp_model(); // Aplica o modelo treinado
+
 
     while (1) {
         // --- Leitura e Processamento ---
-        uint16_t lux = bh1750_read_measurement(I2C_PORT_SENSORS);
+        lux = bh1750_read_measurement(I2C_PORT_SENSORS);
         gy33_read_color(&r, &g, &b, &c);
-        uint8_t r_norm = map(r, 0, SENSOR_COLOR_MAX_VALUE, 0, 255);
-        uint8_t g_norm = map(g, 0, SENSOR_COLOR_MAX_VALUE, 0, 255);
-        uint8_t b_norm = map(b, 0, SENSOR_COLOR_MAX_VALUE, 0, 255);
+        r_norm = map(r, 0, SENSOR_COLOR_MAX_VALUE, 0, 255);
+        g_norm = map(g, 0, SENSOR_COLOR_MAX_VALUE, 0, 255);
+        b_norm = map(b, 0, SENSOR_COLOR_MAX_VALUE, 0, 255);
         printf("Lux: %u, R: %u, G: %u, B: %u\n", lux, r_norm, g_norm, b_norm);
         float h, s, v;
         RGBtoHSV(r_norm, g_norm, b_norm, &h, &s, &v);
@@ -90,21 +111,38 @@ int main() {
         uint8_t g_final = (cor_led_pura.g * brilho) / 255;
         uint8_t b_final = (cor_led_pura.b * brilho) / 255;
         np_set_leds(matriz, r_final, g_final, b_final);
+
+        mode = get_ambient_mode();
         
         // --- Exibição no Display OLED ---
         ssd1306_fill(&disp, false);
         sprintf(oled_buffer, "Cor: %s", obter_nome_para_cor(cor_atual));
         ssd1306_draw_string(&disp, oled_buffer, 0, 0);
-        sprintf(oled_buffer, "H:%3.0f S:%.2f V:%.2f", h, s, v);
-        ssd1306_draw_string(&disp, oled_buffer, 0, 16);
-        sprintf(oled_buffer, "R:%-5u G:%-5u", r, g);
-        ssd1306_draw_string(&disp, oled_buffer, 0, 36);
-        sprintf(oled_buffer, "B:%-5u Lux:%-4u", b, lux);
+        if(screen) {
+            sprintf(oled_buffer, "H:%3.0f", h);
+            ssd1306_draw_string(&disp, oled_buffer, 34, 16);
+            sprintf(oled_buffer, "S:%.2f", s);
+            ssd1306_draw_string(&disp, oled_buffer, 34, 26);
+            sprintf(oled_buffer, "V:%.2f", v);
+            ssd1306_draw_string(&disp, oled_buffer, 34, 36);
+        } else {
+            sprintf(oled_buffer, "R:%u", r_norm);
+            ssd1306_draw_string(&disp, oled_buffer, 35, 16);
+            sprintf(oled_buffer, "G:%u", g_norm);
+            ssd1306_draw_string(&disp, oled_buffer, 35, 26);
+            sprintf(oled_buffer, "B:%u", b_norm);
+            ssd1306_draw_string(&disp, oled_buffer, 35, 36);
+        }
+        sprintf(oled_buffer, "Lux:%u", lux);
         ssd1306_draw_string(&disp, oled_buffer, 0, 52);
+        sprintf(oled_buffer, (mode==0)?"Idle":(mode==1)?"Work":(mode==2)?"Fest":"????");
+        ssd1306_draw_string(&disp, oled_buffer, 90, 52);
         ssd1306_send_data(&disp);
         
         // --- Controle do LED RGB ---
         switch_led_color();
+
+        printf("\n\nModo do ambiente: %i\n\n", get_ambient_mode());
         sleep_ms(200);
     }
 
@@ -159,10 +197,13 @@ void init_leds_buttons() {
     // Configura os pinos dos botões
     gpio_init(BUTTON_A);
     gpio_init(BUTTON_B);
+    gpio_init(BTN_JOYSTICK);
     gpio_set_dir(BUTTON_A, GPIO_IN);
     gpio_set_dir(BUTTON_B, GPIO_IN);
+    gpio_set_dir(BTN_JOYSTICK, GPIO_IN);
     gpio_pull_up(BUTTON_A);
     gpio_pull_up(BUTTON_B);
+    gpio_pull_up(BTN_JOYSTICK);
 }
 
 /**
@@ -204,6 +245,8 @@ void gpio_irq_handler(uint gpio, uint32_t events){
             if (led_state > 6) {
                 led_state = 0; // Volta ao início
             }
+        } else if(gpio == BTN_JOYSTICK) {
+            screen = !screen;
         }
     }
 }
@@ -228,4 +271,100 @@ void switch_led_color() {
         gpio_put(LED_GREEN, 0);
         gpio_put(LED_BLUE, 0);
     }
+}
+
+int get_ambient_mode() {
+    float xMin[3] = {0.0, 0.0, 0.0};
+    float xMax[3] = {255.0, 255.0, 255.0};
+    float yMin[3] = {0.0, 0.0, 0.0};
+    float yMax[3] = {1.0, 1.0, 1.0};
+
+    float X[3] = {r_norm, g_norm, b_norm};
+
+    // Normalização
+    for (int j = 0; j < 3; j++) {
+        X[j] = (X[j] - xMin[j]) / (xMax[j] - xMin[j]);
+    }
+
+    // Forward MLP
+    forward(&mlp, X);
+
+    float *o = mlp.output_layer_outputs;
+    float threshold_one = 0.95f;
+    float threshold_zero = 0.05f;
+
+    // Desnormaliza saída
+    for (int k = 0; k < mlp.output_layer_length; k++) {
+        o[k] = o[k] * (yMax[k] - yMin[k]) + yMin[k];
+    }
+
+    printf("\nMLP output: %.2f %.2f %.2f\n", o[0], o[1], o[2]);
+
+    // Verifica saída “quase perfeita”
+    for (int i = 0; i < mlp.output_layer_length; i++) {
+        if (o[i] >= threshold_one) {
+            int others_are_zero = 1;
+            for (int j = 0; j < mlp.output_layer_length; j++) {
+                if (j != i && o[j] > threshold_zero) {
+                    others_are_zero = 0;
+                    break;
+                }
+            }
+
+            if (others_are_zero) {
+                // Verificação extra com Lux
+                if (i == 0 && (lux >= 10 && lux <= 300)) return 0; // Relax
+                if (i == 1 && (lux >= 300 && lux <= 700)) return 1; // Work
+                if (i == 2 && (lux >= 700 && lux <= 1000)) return 2; // Party
+
+                return 3; // Lux fora da faixa → Outlier
+            }
+        }
+    }
+
+    return 3; // Incerto
+}
+
+
+
+void trained_mlp_model() {
+    mlp.input_layer_length = INPUT_LAYER_LEN;
+    mlp.hidden_layer_length = HIDDEN_LAYER_LEN;
+    mlp.output_layer_length = OUTPUT_LAYER_LEN;
+
+    float hidden_layer_weights[HIDDEN_LAYER_LEN][INPUT_LAYER_LEN+1] = {
+        {2.661857, 6.408717, 1.197877, -5.405861, },
+        {-2.044108, -5.768311, -0.194693, 4.042969, },
+        {3.156306, -5.066918, -4.585429, 1.241510, },
+        {-12.349979, -2.461361, 3.371196, 4.594296, },
+        {4.260282, -4.847218, -4.883586, 0.496394, },
+    };
+
+    float output_layer_weights[OUTPUT_LAYER_LEN ][HIDDEN_LAYER_LEN+1] = {
+        {-5.191444, 1.899328, -2.282097, 12.606183, -3.801378, -3.360971, },
+        {8.362973, -6.287300, -4.975049, -11.016505, -4.422555, 2.839259, },
+        {-6.135138, 2.244717, 5.509221, -5.429541, 6.808523, -3.378476, },
+    };
+
+    // Alocar pesos da hidden layer
+    mlp.hidden_layer_weights = (float**) malloc(mlp.hidden_layer_length * sizeof(float*));
+    for (int i = 0; i < mlp.hidden_layer_length; i++) {
+        mlp.hidden_layer_weights[i] = (float*) malloc((mlp.input_layer_length + 1) * sizeof(float));
+        for (int j = 0; j < (mlp.input_layer_length + 1); j++) {
+            mlp.hidden_layer_weights[i][j] = hidden_layer_weights[i][j];
+        }
+    }
+
+    // Alocar pesos da output layer
+    mlp.output_layer_weights = (float**) malloc(mlp.output_layer_length * sizeof(float*));
+    for (int i = 0; i < mlp.output_layer_length; i++) {
+        mlp.output_layer_weights[i] = (float*) malloc((mlp.hidden_layer_length + 1) * sizeof(float));
+        for (int j = 0; j < (mlp.hidden_layer_length + 1); j++) {
+            mlp.output_layer_weights[i][j] = output_layer_weights[i][j];
+        }
+    }
+
+    // Alocar saídas
+    mlp.hidden_layer_outputs = (float*) malloc(mlp.hidden_layer_length * sizeof(float));
+    mlp.output_layer_outputs = (float*) malloc(mlp.output_layer_length * sizeof(float));
 }
